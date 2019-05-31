@@ -1,6 +1,6 @@
 // DXGIConsoleApplication.cpp : Defines the entry point for the console application.
 //
-
+#include "stdafx.h"
 #include "DuplicationManager.h"
 #include <time.h>
 
@@ -61,7 +61,7 @@ void save_as_bitmap(unsigned char *bitmap_data, int rowPitch, int height, char *
 	fclose(f);
 }
 
-int main()
+int main(int argc, char* argv[])
 {
 	fopen_s(&log_file, "logY.txt", "w");
 
@@ -78,7 +78,7 @@ int main()
 		return 0;
 	}
 
-	BYTE* pBuf = new BYTE[10000000];
+	BYTE* pBuf = new BYTE[10*1024*1024];
 	
 	// Main duplication loop
 	for (int i = 0; i < 100; i++)

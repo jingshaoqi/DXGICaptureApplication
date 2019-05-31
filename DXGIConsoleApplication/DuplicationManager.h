@@ -35,10 +35,10 @@ typedef struct _DX_RESOURCES
 {
 	ID3D11Device* Device;
 	ID3D11DeviceContext* Context;
-	ID3D11VertexShader* VertexShader;
-	ID3D11PixelShader* PixelShader;
-	ID3D11InputLayout* InputLayout;
-	ID3D11SamplerState* SamplerLinear;
+// 	ID3D11VertexShader* VertexShader;
+// 	ID3D11PixelShader* PixelShader;
+// 	ID3D11InputLayout* InputLayout;
+// 	ID3D11SamplerState* SamplerState;
 } DX_RESOURCES;
 
 
