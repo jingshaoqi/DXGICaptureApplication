@@ -63,6 +63,7 @@ void save_as_bitmap(unsigned char *bitmap_data, int rowPitch, int height, char *
 
 int main(int argc, char* argv[])
 {
+	MFStartup(MF_VERSION, 0);
 	fopen_s(&log_file, "logY.txt", "w");
 
 	DUPLICATIONMANAGER DuplMgr;
@@ -81,7 +82,7 @@ int main(int argc, char* argv[])
 	BYTE* pBuf = new BYTE[10*1024*1024];
 	
 	// Main duplication loop
-	for (int i = 0; i < 100; i++)
+	for (int i = 0; i < 200; i++)
 	{
 		// Get new frame from desktop duplication
 		Ret = DuplMgr.GetFrame(pBuf);
@@ -89,8 +90,8 @@ int main(int argc, char* argv[])
 		{
 			fprintf_s(log_file, "Could not get the frame.");
 		}
-		sprintf_s(file_name, "%d.bmp", i);
-		save_as_bitmap(pBuf, DuplMgr.GetImagePitch(), DuplMgr.GetImageHeight(), file_name);
+// 		sprintf_s(file_name, "%02d.bmp", i);
+// 		save_as_bitmap(pBuf, DuplMgr.GetImagePitch(), DuplMgr.GetImageHeight(), file_name);
 	}
 	delete pBuf;
 

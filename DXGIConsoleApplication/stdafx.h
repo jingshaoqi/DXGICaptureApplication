@@ -12,6 +12,17 @@
 
 #include <malloc.h>
 
+#include <Windows.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <Mfreadwrite.h>
+#include <mferror.h>
+#include <Wmcodecdsp.h>
+#include <Codecapi.h>
+
+#include <stdio.h>
+#include <initguid.h>
+
 
 
 // TODO: reference additional headers your program requires here

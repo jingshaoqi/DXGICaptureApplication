@@ -73,8 +73,12 @@ class DUPLICATIONMANAGER
 		FILE *m_log_file;
 		int m_ImagePitch;
 
+		LONGLONG rtStart;
+		UINT64 rtDuration;
+
 	//methods
 		DUPL_RETURN InitializeDx();
+		HRESULT init_encoder();
 		_Post_satisfies_(return != DUPL_RETURN_SUCCESS)
 		DUPL_RETURN ProcessFailure(_In_opt_ ID3D11Device* Device, _In_ LPCWSTR Str, HRESULT hr, _In_opt_z_ HRESULT* ExpectedErrors = nullptr);
 		void DisplayMsg(_In_ LPCWSTR Str, HRESULT hr);
