@@ -63,6 +63,12 @@ void save_as_bitmap(unsigned char *bitmap_data, int rowPitch, int height, char *
 
 int main(int argc, char* argv[])
 {
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+	if (!SUCCEEDED(hr))
+	{
+		return 0;
+	}
+
 	MFStartup(MF_VERSION, 0);
 	fopen_s(&log_file, "logY.txt", "w");
 
@@ -94,6 +100,7 @@ int main(int argc, char* argv[])
 // 		save_as_bitmap(pBuf, DuplMgr.GetImagePitch(), DuplMgr.GetImageHeight(), file_name);
 	}
 	delete pBuf;
+	DuplMgr.Finalize();
 
 	fclose(log_file);
     return 0;

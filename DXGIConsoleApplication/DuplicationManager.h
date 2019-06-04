@@ -55,6 +55,7 @@ class DUPLICATIONMANAGER
         ~DUPLICATIONMANAGER();
         _Success_(*Timeout == false && return == DUPL_RETURN_SUCCESS) 
 		DUPL_RETURN GetFrame(_Inout_ BYTE* ImageData);
+		void Finalize();
         DUPL_RETURN InitDupl(_In_ FILE *log_file, UINT Output);
 		int GetImageHeight();
 		int GetImageWidth();
@@ -85,6 +86,9 @@ class DUPLICATIONMANAGER
 		void CopyImage(BYTE* ImageData);
 		void GetOutputDesc(_Out_ DXGI_OUTPUT_DESC* DescPtr);
 		DUPL_RETURN DoneWithFrame();
+
+		IMFSinkWriter *pSinkWriter = NULL;
+		DWORD stream;
 
 };
 
