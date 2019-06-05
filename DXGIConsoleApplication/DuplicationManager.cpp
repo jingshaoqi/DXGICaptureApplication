@@ -5,6 +5,7 @@
 //
 // Copyright (c) Microsoft Corporation. All rights reserved
 #include "stdafx.h"
+#include "transform.h"
 #include "DuplicationManager.h"
 
 // Below are lists of errors expect from Dxgi API calls when a transition event like mode change, PnpStop, PnpStart
@@ -193,6 +194,8 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 		return DUPL_RETURN_ERROR_UNEXPECTED;
 	}
 
+	init_transform();
+
     return DUPL_RETURN_SUCCESS;
 }
 
@@ -233,6 +236,19 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
     {
         return ProcessFailure(nullptr, L"Failed to QI for ID3D11Texture2D from acquired IDXGIResource in DUPLICATIONMANAGER", hr);
     }
+
+#if 1
+	{
+		m_DxRes->Context->CopyResource(m_DestImage, m_AcquiredDesktopImage);
+		D3D11_MAPPED_SUBRESOURCE resource;
+		UINT subresource = D3D11CalcSubresource(0, 0, 0);
+		m_DxRes->Context->Map(m_DestImage, subresource, D3D11_MAP_READ, 0, &resource);
+		encode_to_h264(m_DestImage);
+		m_DxRes->Context->Unmap(m_DestImage, subresource);
+		DoneWithFrame();
+		return DUPL_RETURN_SUCCESS;
+	}
+#endif
 
 	CopyImage(ImageData);
 	
@@ -427,12 +443,16 @@ DUPL_RETURN DUPLICATIONMANAGER::InitializeDx()
 	// Create device
 	for (UINT DriverTypeIndex = 0; DriverTypeIndex < NumDriverTypes; ++DriverTypeIndex)
 	{
-		hr = D3D11CreateDevice(nullptr, DriverTypes[DriverTypeIndex], nullptr, 0, FeatureLevels, NumFeatureLevels,
+		hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, FeatureLevels, NumFeatureLevels,
 			D3D11_SDK_VERSION, &m_DxRes->Device, &FeatureLevel, &m_DxRes->Context);
 		if (SUCCEEDED(hr))
 		{
+			printf("create device successful\n");
 			// Device creation success, no need to loop anymore
 			break;
+		}
+		else {
+			printf("create device fail\n");
 		}
 	}
 	if (FAILED(hr))

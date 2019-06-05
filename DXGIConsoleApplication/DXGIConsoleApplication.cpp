@@ -69,6 +69,32 @@ int main(int argc, char* argv[])
 	DUPL_RETURN Ret;
 
 	UINT Output = 0;
+
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	switch (hr)
+	{
+	case  E_INVALIDARG:
+		break;
+	case  E_OUTOFMEMORY:
+		break;
+	case  E_UNEXPECTED:
+		break;
+	case  S_FALSE:
+		break;
+	case  RPC_E_CHANGED_MODE:
+		break;
+	case  S_OK:
+		break;
+	default:
+		break;
+	}
+
+	hr = MFStartup(MF_VERSION);
+	if (!SUCCEEDED(hr))
+	{
+		return -1;
+	}
+
 	
 	// Make duplication manager
 	Ret = DuplMgr.InitDupl(log_file, Output);
@@ -81,7 +107,7 @@ int main(int argc, char* argv[])
 	BYTE* pBuf = new BYTE[10*1024*1024];
 	
 	// Main duplication loop
-	for (int i = 0; i < 100; i++)
+	for (int i = 0; i < 200; i++)
 	{
 		// Get new frame from desktop duplication
 		Ret = DuplMgr.GetFrame(pBuf);
@@ -89,7 +115,7 @@ int main(int argc, char* argv[])
 		{
 			fprintf_s(log_file, "Could not get the frame.");
 		}
-		sprintf_s(file_name, "%d.bmp", i);
+		sprintf_s(file_name, "%04d.bmp", i);
 		save_as_bitmap(pBuf, DuplMgr.GetImagePitch(), DuplMgr.GetImageHeight(), file_name);
 	}
 	delete pBuf;
