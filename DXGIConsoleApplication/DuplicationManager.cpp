@@ -8,115 +8,16 @@
 #include "Com.h"
 #include "mfobjects.h"
 #include "DuplicationManager.h"
+#include "mf-encoder.h"
 
 // Below are lists of errors expect from Dxgi API calls when a transition event like mode change, PnpStop, PnpStart
 // desktop switch, TDR or session disconnect/reconnect. In all these cases we want the application to clean up the threads that process
 // the desktop updates and attempt to recreate them.
 // If we get an error that is not on the appropriate list then we exit the application
 
-#pragma comment(lib, "mfreadwrite")
-#pragma comment(lib, "mfplat")
-#pragma comment(lib, "mfuuid")
 
-// const UINT32 VIDEO_WIDTH = 1920;
-// const UINT32 VIDEO_HEIGHT = 1080;
-// const UINT32 VIDEO_FPS = 25;
-// const UINT32 VIDEO_BIT_RATE = 3000000;
-const UINT32 VIDEO_WIDTH = 1920;
-const UINT32 VIDEO_HEIGHT = 1080;
-const UINT32 VIDEO_BUFFER_SIZE = (VIDEO_WIDTH * VIDEO_HEIGHT * 3) >> 1;
 
 // Format constants
-
-const UINT32 VIDEO_FPS = 25;
-const UINT64 VIDEO_FRAME_DURATION = 10 * 1000 * 1000 / VIDEO_FPS;
-const UINT32 VIDEO_BIT_RATE = 800000;
-
-const GUID   VIDEO_ENCODING_FORMAT = MFVideoFormat_H264;
-const GUID   VIDEO_INPUT_FORMAT = MFVideoFormat_RGB32;
-
-const UINT32 VIDEO_PELS = VIDEO_WIDTH * VIDEO_HEIGHT;
-const UINT32 VIDEO_FRAME_COUNT = 20 * VIDEO_FPS;
-
-// Buffer to hold the video frame data.
-DWORD videoFrameBuffer[VIDEO_PELS];
-
-#undef SafeRelease
-#define SafeRelease(ppT) \
-{ \
-    if (*ppT) \
-    { \
-        (*ppT)->Release(); \
-        *ppT = NULL; \
-    } \
-} 
-
-enum EncodeMode
-{
-	EncodeMode_CBR,
-	EncodeMode_VBR_Quality,
-	EncodeMode_VBR_Peak,
-	EncodeMode_VBR_Unconstrained,
-};
-
-struct LeakyBucket
-{
-	DWORD dwBitrate;
-	DWORD msBufferSize;
-	DWORD msInitialBufferFullness;
-};
-
-HRESULT InitializeSinkWriter(IMFSinkWriter **ppWriter, DWORD *pStreamIndex);
-
-HRESULT CreateMediaSample(DWORD cbData, IMFSample **ppSample);
-class CWmaEncoder
-{
-public:
-
-	CWmaEncoder()
-		: m_pMFT(NULL), m_dwInputID(0), m_dwOutputID(0), m_pOutputType(NULL)
-	{
-	}
-
-	~CWmaEncoder()
-	{
-		SafeRelease(&m_pMFT);
-		SafeRelease(&m_pOutputType);
-	}
-
-	HRESULT Initialize();
-	HRESULT SetEncodingType(EncodeMode mode);
-	HRESULT SetInputType(IMFMediaType* pMediaType);
-	HRESULT GetOutputType(IMFMediaType** ppMediaType);
-	HRESULT GetLeakyBucket1(LeakyBucket *pBucket);
-	HRESULT ProcessInput(IMFSample* pSample);
-	HRESULT ProcessOutput(IMFSample **ppSample);
-	HRESULT Drain();
-	void EncodeToH264(ID3D11Texture2D *texture);
-
-	LONGLONG rtStart;
-	UINT64 rtDuration;
-
-	IMFSample *pSampleIn;
-
-	DWORD nLength;
-	FILE *pf;
-
-protected:
-	DWORD           m_dwInputID;     // Input stream ID.
-	DWORD           m_dwOutputID;    // Output stream ID.
-
-	IMFTransform    *m_pMFT;         // Pointer to the encoder MFT.
-	IMFMediaType    *m_pOutputType;  // Output media type of the encoder.
-
-};
-
-class CWmaEncoder;
-CWmaEncoder* encoder = NULL;
-
-#undef CHECK_HR
-#define CHECK_HR(x) if (FAILED(x)) { fprintf(stdout, "Operation Failed line:%d\n", __LINE__); goto bail; }
-
 
 // These are the errors we expect from general Dxgi API due to a transition
 HRESULT SystemTransitionsExpectedErrors[] = {
@@ -209,17 +110,34 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 	m_log_file = log_file;
 	m_DxRes = new (std::nothrow) DX_RESOURCES;
 	RtlZeroMemory(m_DxRes, sizeof(DX_RESOURCES));
-	DUPL_RETURN Ret = InitializeDx(); 
-	if (Ret != DUPL_RETURN_SUCCESS)
+
+	HRESULT hr = S_OK;
+
+	// Feature levels supported
+	D3D_FEATURE_LEVEL FeatureLevels[] =
 	{
-		fprintf_s(log_file, "DX_RESOURCES couldn't be initialized.");
-		return Ret;
+		D3D_FEATURE_LEVEL_11_0,
+		D3D_FEATURE_LEVEL_10_1,
+		D3D_FEATURE_LEVEL_10_0,
+		D3D_FEATURE_LEVEL_9_1
+	};
+	UINT NumFeatureLevels = ARRAYSIZE(FeatureLevels);
+
+	D3D_FEATURE_LEVEL FeatureLevel;
+
+	// Create  hardware device
+	hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, FeatureLevels, NumFeatureLevels,
+		D3D11_SDK_VERSION, &m_DxRes->Device, &FeatureLevel, &m_DxRes->Context);
+	if (FAILED(hr))
+	{
+		return ProcessFailure(nullptr, L"Failed to create device in InitializeDx", hr);
 	}
+
     m_OutputNumber = Output;
 
     // Get DXGI device
     IDXGIDevice* DxgiDevice = nullptr;
-    HRESULT hr = m_DxRes->Device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&DxgiDevice));
+    hr = m_DxRes->Device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&DxgiDevice));
     if (FAILED(hr))
     {
         return ProcessFailure(nullptr, L"Failed to QI for DXGI Device", hr);
@@ -271,7 +189,26 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
         return ProcessFailure(m_DxRes->Device, L"Failed to get duplicate output in DUPLICATIONMANAGER", hr, CreateDuplicationExpectedErrors);
     }
 
-	D3D11_TEXTURE2D_DESC desc; 
+	hr  = CreateTextureForDevice();
+	if (FAILED(hr))
+	{
+		return ProcessFailure(nullptr, L"Failed CreateTextureForDevice in DUPLICATIONMANAGER", hr);
+	}
+
+	encoder = new CMediaFoundationEncoder();
+	hr = encoder->Initialize();
+	if (FAILED(hr))
+	{
+		return ProcessFailure(nullptr, L"Failed to init_encoder in DUPLICATIONMANAGER", hr);
+	}
+
+    return DUPL_RETURN_SUCCESS;
+}
+
+HRESULT DUPLICATIONMANAGER::CreateTextureForDevice()
+{
+	HRESULT hr = S_OK;
+	D3D11_TEXTURE2D_DESC desc;
 	DXGI_OUTDUPL_DESC lOutputDuplDesc;
 	m_DeskDupl->GetDesc(&lOutputDuplDesc);
 	desc.Width = lOutputDuplDesc.ModeDesc.Width;
@@ -290,208 +227,92 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 
 	if (FAILED(hr))
 	{
-		ProcessFailure(nullptr, L"Creating cpu accessable texture failed.", hr);
+		ProcessFailure(nullptr, L"Creating cpu accessible texture failed.", hr);
 		return DUPL_RETURN_ERROR_UNEXPECTED;
 	}
 
 	if (m_DestImage == nullptr)
 	{
-		ProcessFailure(nullptr, L"Creating cpu accessable texture failed.", hr);
+		ProcessFailure(nullptr, L"Creating cpu accessible texture failed.", hr);
 		return DUPL_RETURN_ERROR_UNEXPECTED;
 	}
-
-	hr = init_encoder();
-
-	InitializeSinkWriter(&pSinkWriter, &stream);
-
-    return DUPL_RETURN_SUCCESS;
-}
-
-
-
-HRESULT InitializeSinkWriter(IMFSinkWriter **ppWriter, DWORD *pStreamIndex)
-{
-	*ppWriter = NULL;
-	*pStreamIndex = NULL;
-
-	IMFSinkWriter   *pSinkWriter = NULL;
-	IMFMediaType    *pMediaTypeOut = NULL;
-	IMFMediaType    *pMediaTypeIn = NULL;
-	DWORD           streamIndex;
-
-	HRESULT hr = MFCreateSinkWriterFromURL(L"output.mp4", NULL, NULL, &pSinkWriter);
-
-	// Set the output media type.
-	if (SUCCEEDED(hr))
-	{
-		hr = MFCreateMediaType(&pMediaTypeOut);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeOut->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeOut->SetGUID(MF_MT_SUBTYPE, VIDEO_ENCODING_FORMAT);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeOut->SetUINT32(MF_MT_AVG_BITRATE, VIDEO_BIT_RATE);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeOut->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFSetAttributeSize(pMediaTypeOut, MF_MT_FRAME_SIZE, VIDEO_WIDTH, VIDEO_HEIGHT);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFSetAttributeRatio(pMediaTypeOut, MF_MT_FRAME_RATE, VIDEO_FPS, 1);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFSetAttributeRatio(pMediaTypeOut, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pSinkWriter->AddStream(pMediaTypeOut, &streamIndex);
-	}
-
-	// Set the input media type.
-	if (SUCCEEDED(hr))
-	{
-		hr = MFCreateMediaType(&pMediaTypeIn);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeIn->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeIn->SetGUID(MF_MT_SUBTYPE, VIDEO_INPUT_FORMAT);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pMediaTypeIn->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFSetAttributeSize(pMediaTypeIn, MF_MT_FRAME_SIZE, VIDEO_WIDTH, VIDEO_HEIGHT);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFSetAttributeRatio(pMediaTypeIn, MF_MT_FRAME_RATE, VIDEO_FPS, 1);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFSetAttributeRatio(pMediaTypeIn, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pSinkWriter->SetInputMediaType(streamIndex, pMediaTypeIn, NULL);
-	}
-
-	// Tell the sink writer to start accepting data.
-	if (SUCCEEDED(hr))
-	{
-		hr = pSinkWriter->BeginWriting();
-	}
-
-	// Return the pointer to the caller.
-	if (SUCCEEDED(hr))
-	{
-		*ppWriter = pSinkWriter;
-		(*ppWriter)->AddRef();
-		*pStreamIndex = streamIndex;
-	}
-
-	SafeRelease(&pSinkWriter);
-	SafeRelease(&pMediaTypeOut);
-	SafeRelease(&pMediaTypeIn);
-	return hr;
-}
-
-HRESULT WriteFrame(
-	IMFSinkWriter *pWriter,
-	DWORD streamIndex,
-	const LONGLONG& rtStart,        // Time stamp.
-	IMFSample *sam
-	)
-{
-	IMFSample *pSample = NULL;
-	IMFMediaBuffer *pBuffer = NULL;
-
-	const LONG cbWidth = 4 * VIDEO_WIDTH;
-	const DWORD cbBuffer = cbWidth * VIDEO_HEIGHT;
-
-
-	BYTE *pData = NULL;
-
-	// Create a new memory buffer.
-	HRESULT hr = MFCreateMemoryBuffer(cbBuffer, &pBuffer);
-
-	// Lock the buffer and copy the video frame to the buffer.
-	if (SUCCEEDED(hr))
-	{
-		hr = pBuffer->Lock(&pData, NULL, NULL);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = MFCopyImage(
-			pData,                      // Destination buffer.
-			cbWidth,                    // Destination stride.
-			(BYTE*)videoFrameBuffer,    // First row in source image.
-			cbWidth,                    // Source stride.
-			cbWidth,                    // Image width in bytes.
-			VIDEO_HEIGHT                // Image height in pixels.
-			);
-	}
-	if (pBuffer)
-	{
-		pBuffer->Unlock();
-	}
-
-	// Set the data length of the buffer.
-	if (SUCCEEDED(hr))
-	{
-		hr = pBuffer->SetCurrentLength(cbBuffer);
-	}
-
-	// Create a media sample and add the buffer to the sample.
-	if (SUCCEEDED(hr))
-	{
-		hr = MFCreateSample(&pSample);
-	}
-	if (SUCCEEDED(hr))
-	{
-		hr = pSample->AddBuffer(pBuffer);
-	}
-
-	// Set the time stamp and the duration.
-	if (SUCCEEDED(hr))
-	{
-		hr = pSample->SetSampleTime(rtStart);		
-	}	
-
-	if (SUCCEEDED(hr))
-	{
-		hr = pSample->SetSampleDuration(VIDEO_FRAME_DURATION);
-	}
-
-	// Send the sample to the Sink Writer.
-	if (SUCCEEDED(hr))
-	{
-		hr = pWriter->WriteSample(streamIndex, pSample);
-	}
-
-	SafeRelease(&pSample);
-	SafeRelease(&pBuffer);
 	return hr;
 }
 
 void texture_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
+{
+	HRESULT status;
+	IMFMediaBufferPtr buffer;
+	status = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), texture, 0, FALSE, &buffer);
+	if (FAILED(status))
+	{
+		return;
+	}
+
+	IMF2DBufferPtr imfBuffer(buffer);
+	DWORD length;
+	imfBuffer->GetContiguousLength(&length);
+	buffer->SetCurrentLength(length);
+
+	IMFSample *sample;
+	MFCreateSample(&sample);
+	sample->AddBuffer(buffer);
+	*pp_sample = sample;
+}
+
+uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture, size_t& len)
+{
+	HRESULT result;
+	bool timeout;
+
+	size_t    remain = 32 * 1024 * 1024;
+	uint8_t * data = (uint8_t *)malloc(remain);
+	size_t init_size = remain;
+	uint8_t * init_ptr = data;
+	for (int i = 0; i < 3; ++i)
+	{
+		HRESULT                  status;
+		D3D11_MAPPED_SUBRESOURCE mapping;
+		D3D11_TEXTURE2D_DESC     desc;
+		/*
+		m_texture[i]->GetDesc(&desc);
+		status = m_deviceContext->Map(m_texture[i], 0, D3D11_MAP_READ, 0, &mapping);
+		if (FAILED(status))
+		{
+			DEBUG_WINERROR("Failed to map the texture", status);
+			DeInitialize();
+			free(init_ptr);
+			return GRAB_STATUS_ERROR;
+		}
+
+		const unsigned int size = desc.Height * desc.Width;
+		if (size > remain)
+		{
+			m_deviceContext->Unmap(m_texture[i], 0);
+			DEBUG_ERROR("Too much data to fit in buffer");
+			free(init_ptr);
+			return GRAB_STATUS_ERROR;
+		}
+
+		const uint8_t * src = (uint8_t *)mapping.pData;
+		for (unsigned int y = 0; y < desc.Height; ++y)
+		{
+			memcpySSE(data, src, desc.Width);
+			data += desc.Width;
+			src += mapping.RowPitch;
+		}
+		m_deviceContext->Unmap(m_texture[i], 0);
+		remain -= size;*/
+	}
+
+
+
+	size_t buf_size = init_size - remain;
+
+	return data;
+}
+
+void texture_convert_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
 {
 	HRESULT status;
 	IMFMediaBufferPtr buffer;
@@ -734,535 +555,5 @@ void DUPLICATIONMANAGER::DisplayMsg(_In_ LPCWSTR Str, HRESULT hr)
 	}
 
 	delete[] OutStr;
-}
-
-//
-// Get DX_RESOURCES
-//
-DUPL_RETURN DUPLICATIONMANAGER::InitializeDx()
-{
-
-	HRESULT hr = S_OK;
-
-	// Driver types supported
-	D3D_DRIVER_TYPE DriverTypes[] =
-	{
-		D3D_DRIVER_TYPE_HARDWARE,
-		D3D_DRIVER_TYPE_WARP,
-		D3D_DRIVER_TYPE_REFERENCE,
-	};
-	UINT NumDriverTypes = ARRAYSIZE(DriverTypes);
-
-	// Feature levels supported
-	D3D_FEATURE_LEVEL FeatureLevels[] =
-	{
-		D3D_FEATURE_LEVEL_11_0,
-		D3D_FEATURE_LEVEL_10_1,
-		D3D_FEATURE_LEVEL_10_0,
-		D3D_FEATURE_LEVEL_9_1
-	};
-	UINT NumFeatureLevels = ARRAYSIZE(FeatureLevels);
-
-	D3D_FEATURE_LEVEL FeatureLevel;
-
-	// Create device
-	for (UINT DriverTypeIndex = 0; DriverTypeIndex < NumDriverTypes; ++DriverTypeIndex)
-	{
-		hr = D3D11CreateDevice(nullptr, DriverTypes[DriverTypeIndex], nullptr, 0, FeatureLevels, NumFeatureLevels,
-			D3D11_SDK_VERSION, &m_DxRes->Device, &FeatureLevel, &m_DxRes->Context);
-		if (SUCCEEDED(hr))
-		{
-			// Device creation success, no need to loop anymore
-			break;
-		}
-	}
-	if (FAILED(hr))
-	{
-
-		return ProcessFailure(nullptr, L"Failed to create device in InitializeDx", hr);
-	}
-
-	return DUPL_RETURN_SUCCESS;
-}
-
-
-HRESULT CWmaEncoder::Initialize()
-{
-	CLSID *pCLSIDs = NULL;   // Pointer to an array of CLISDs. 
-	UINT32 count = 0;      // Size of the array.
-
-	IMFMediaType* pOutMediaType = NULL;
-	ICodecAPI* pCodecAPI = NULL;
-
-	// Look for a encoder.
-	MFT_REGISTER_TYPE_INFO toutinfo;
-	toutinfo.guidMajorType = MFMediaType_Video;
-	toutinfo.guidSubtype = MFVideoFormat_H264;
-
-	HRESULT hr = S_OK;
-
-	UINT32 unFlags = MFT_ENUM_FLAG_HARDWARE |
-		MFT_ENUM_FLAG_SYNCMFT |
-		MFT_ENUM_FLAG_LOCALMFT |
-		MFT_ENUM_FLAG_SORTANDFILTER;
-
-	hr = MFTEnum(
-		MFT_CATEGORY_VIDEO_ENCODER,
-		unFlags,                  // Reserved
-		NULL,               // Input type to match. 
-		&toutinfo,          // Output type to match.
-		NULL,               // Attributes to match. (None.)
-		&pCLSIDs,           // Receives a pointer to an array of CLSIDs.
-		&count              // Receives the size of the array.
-		);
-
-	if (SUCCEEDED(hr))
-	{
-		if (count == 0)
-		{
-			hr = MF_E_TOPO_CODEC_NOT_FOUND;
-		}
-	}
-
-	//hr = CoCreateInstance(CLSID_MF_H264EncFilter, NULL, 
-	//        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_pMFT));
-
-
-	//Create the MFT decoder
-	if (SUCCEEDED(hr))
-	{
-		hr = CoCreateInstance(pCLSIDs[0], NULL,
-			CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_pMFT));
-	}
-
-	hr = m_pMFT->QueryInterface(IID_PPV_ARGS(&pCodecAPI));
-	if (SUCCEEDED(hr))
-	{
-		VARIANT var = { 0 };
-
-		// FIXME: encoder only
-		var.vt = VT_UI4;
-		var.ulVal = 0;
-		hr = pCodecAPI->SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &var);
-
-		var.vt = VT_BOOL;
-		var.boolVal = VARIANT_TRUE;
-		hr = pCodecAPI->SetValue(&CODECAPI_AVEncCommonLowLatency, &var);
-		hr = pCodecAPI->SetValue(&CODECAPI_AVEncCommonRealTime, &var);
-
-		var.vt = VT_UI4;
-		var.ulVal = eAVEncCommonRateControlMode_CBR;
-		hr = pCodecAPI->SetValue(&CODECAPI_AVEncCommonRateControlMode, &var);
-
-
-#if defined(CODECAPI_AVLowLatencyMode) // Win8 only
-		var.vt = VT_BOOL;
-		var.boolVal = VARIANT_TRUE;
-		hr = pCodecAPI->SetValue(&CODECAPI_AVLowLatencyMode, &var);
-#endif
-#if defined(CODECAPI_AVEncCommonMeanBitRate) // Win8 only
-		var.vt = VT_UI4;
-		var.ullVal = 1000000;
-		hr = pCodecAPI->SetValue(&CODECAPI_AVEncCommonMeanBitRate, &var);
-
-#endif
-
-		hr = S_OK;
-	}
-
-
-	SafeRelease(&pCodecAPI);
-
-	hr = MFFrameRateToAverageTimePerFrame(25, 1, &rtDuration);
-	
-	CHECK_HR(hr = CreateMediaSample(VIDEO_BUFFER_SIZE, &pSampleIn));
-	CHECK_HR(hr = pSampleIn->SetSampleDuration(400000));
-
-	fopen_s(&pf, "test.wmv", "wb");
-
-	return hr;
-
-bail:
-	return S_FALSE;
-}
-
-HRESULT CWmaEncoder::SetEncodingType(EncodeMode mode)
-{
-	if (!m_pMFT)
-	{
-		return MF_E_NOT_INITIALIZED;
-	}
-
-	IPropertyStore* pProp = NULL;
-
-	PROPVARIANT var;
-
-	//Query the encoder for its property store
-
-	HRESULT hr = m_pMFT->QueryInterface(IID_PPV_ARGS(&pProp));
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	switch (mode)
-	{
-	case EncodeMode_CBR:
-		//Set the VBR property to FALSE, which indicates CBR encoding
-		//By default, encoding mode is set to CBR
-		var.vt = VT_BOOL;
-		var.boolVal = FALSE;
-		hr = pProp->SetValue(MFPKEY_VBRENABLED, var);
-		break;
-
-
-	default:
-		hr = E_NOTIMPL;
-	}
-
-done:
-	SafeRelease(&pProp);
-	return hr;
-}
-
-HRESULT CWmaEncoder::SetInputType(IMFMediaType* pMediaType)
-{
-	if (!m_pMFT)
-	{
-		return MF_E_NOT_INITIALIZED;
-	}
-
-	SafeRelease(&m_pOutputType);
-
-	IMFMediaType *pOutputType = NULL;
-
-	HRESULT hr = m_pMFT->GetStreamIDs(1, &m_dwInputID, 1, &m_dwOutputID);
-
-	if (hr == E_NOTIMPL)
-	{
-		// The stream identifiers are zero-based.
-		m_dwInputID = 0;
-		m_dwOutputID = 0;
-		hr = S_OK;
-	}
-	else if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	{ // FIXME
-		SafeRelease(&m_pOutputType);
-		hr = MFCreateMediaType(&m_pOutputType);
-		hr = m_pOutputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-		hr = m_pOutputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
-		hr = m_pOutputType->SetUINT32(MF_MT_MPEG2_PROFILE, 1 ? eAVEncH264VProfile_Base : eAVEncH264VProfile_Main); // FIXME
-		hr = m_pOutputType->SetUINT32(MF_MT_AVG_BITRATE, VIDEO_BIT_RATE);
-		hr = m_pOutputType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-		hr = MFSetAttributeSize(m_pOutputType, MF_MT_FRAME_SIZE, VIDEO_WIDTH, VIDEO_HEIGHT);
-		hr = MFSetAttributeRatio(m_pOutputType, MF_MT_FRAME_RATE, VIDEO_FPS, 1);
-		hr = MFSetAttributeRatio(m_pOutputType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-		hr = m_pMFT->SetOutputType(m_dwOutputID, m_pOutputType, 0);
-	}
-
-	// Set the input type to the one passed by the application
-	hr = m_pMFT->SetInputType(m_dwInputID, pMediaType, 0);
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	// Loop through the available output types
-	/*for (DWORD iType = 0; ; iType++)
-	{
-	hr = m_pMFT->GetOutputAvailableType(m_dwOutputID, iType, &pOutputType);
-	if (FAILED(hr))
-	{
-	goto done;
-	}
-
-	hr = m_pMFT->SetOutputType(m_dwOutputID, pOutputType, 0);
-
-	if (SUCCEEDED(hr))
-	{
-	m_pOutputType = pOutputType;
-	m_pOutputType->AddRef();
-	break;
-	}
-
-	SafeRelease(&pOutputType);
-	}*/
-
-done:
-	SafeRelease(&pOutputType);
-	return hr;
-}
-
-HRESULT CWmaEncoder::GetOutputType(IMFMediaType** ppMediaType)
-{
-	if (m_pOutputType == NULL)
-	{
-		return MF_E_TRANSFORM_TYPE_NOT_SET;
-	}
-
-	*ppMediaType = m_pOutputType;
-	(*ppMediaType)->AddRef();
-
-	return S_OK;
-};
-
-
-HRESULT CWmaEncoder::GetLeakyBucket1(LeakyBucket *pBucket)
-{
-	if (m_pMFT == NULL || m_pOutputType == NULL)
-	{
-		return MF_E_NOT_INITIALIZED;
-	}
-
-	ZeroMemory(pBucket, sizeof(*pBucket));
-
-	// Get the bit rate.
-
-	pBucket->dwBitrate = 8 * MFGetAttributeUINT32(
-		m_pOutputType, MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 0);
-
-
-	// Get the buffer window.
-
-	IWMCodecLeakyBucket *pLeakyBuckets = NULL;
-
-	HRESULT hr = m_pMFT->QueryInterface(IID_PPV_ARGS(&pLeakyBuckets));
-	if (SUCCEEDED(hr))
-	{
-		ULONG ulBuffer = 0;
-
-		hr = pLeakyBuckets->GetBufferSizeBits(&ulBuffer);
-
-		if (SUCCEEDED(hr))
-		{
-			pBucket->msBufferSize = ulBuffer / (pBucket->dwBitrate / 1000);
-		}
-
-		pLeakyBuckets->Release();
-	}
-
-	return S_OK;
-}
-
-
-HRESULT CWmaEncoder::ProcessInput(IMFSample* pSample)
-{
-	if (m_pMFT == NULL)
-	{
-		return MF_E_NOT_INITIALIZED;
-	}
-
-	return m_pMFT->ProcessInput(m_dwInputID, pSample, 0);
-}
-
-HRESULT CWmaEncoder::ProcessOutput(IMFSample **ppSample)
-{
-	if (m_pMFT == NULL)
-	{
-		return MF_E_NOT_INITIALIZED;
-	}
-
-	*ppSample = NULL;
-
-	IMFMediaBuffer* pBufferOut = NULL;
-	IMFSample* pSampleOut = NULL;
-
-	DWORD dwStatus;
-
-	MFT_OUTPUT_STREAM_INFO mftStreamInfo = { 0 };
-	MFT_OUTPUT_DATA_BUFFER mftOutputData = { 0 };
-
-	HRESULT hr = m_pMFT->GetOutputStreamInfo(m_dwOutputID, &mftStreamInfo);
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	//create a buffer for the output sample
-	hr = MFCreateMemoryBuffer(mftStreamInfo.cbSize, &pBufferOut);
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	//Create the output sample
-	hr = MFCreateSample(&pSampleOut);
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	//Add the output buffer 
-	hr = pSampleOut->AddBuffer(pBufferOut);
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	//Set the output sample
-	mftOutputData.pSample = pSampleOut;
-
-	//Set the output id
-	mftOutputData.dwStreamID = m_dwOutputID;
-
-	//Generate the output sample
-	hr = m_pMFT->ProcessOutput(0, 1, &mftOutputData, &dwStatus);
-	if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT)
-	{
-		hr = S_OK;
-		goto done;
-	}
-
-	// TODO: Handle MF_E_TRANSFORM_STREAM_CHANGE
-
-	if (FAILED(hr))
-	{
-		goto done;
-	}
-
-	*ppSample = pSampleOut;
-	(*ppSample)->AddRef();
-
-done:
-	SafeRelease(&pBufferOut);
-	SafeRelease(&pSampleOut);
-	return hr;
-};
-
-void CWmaEncoder::EncodeToH264(ID3D11Texture2D *texture)
-{
-	HRESULT status;
-	IMFMediaBufferPtr buffer;
-	status = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), texture, 0, FALSE, &buffer);
-	if (FAILED(status))
-	{		
-		return ;
-	}
-
-	IMF2DBufferPtr imfBuffer(buffer);
-	DWORD length;
-	imfBuffer->GetContiguousLength(&length);
-	buffer->SetCurrentLength(length);
-
-	IMFSample *sample;
-	MFCreateSample(&sample);
-	sample->AddBuffer(buffer);
-	HRESULT hr = S_OK;
-
-#if 0
-	sample->SetSampleTime(rtStart);
-	sample->SetSampleDuration(rtDuration);
-	CHECK_HR(hr = this->ProcessInput(sample));
-#else
-	pSampleIn->SetSampleTime(rtStart);
-	pSampleIn->SetSampleDuration(rtDuration);
-	CHECK_HR(hr = this->ProcessInput(pSampleIn));
-#endif	
-	
-	rtStart += rtDuration;
-
-	IMFSample *pSampleOut = NULL;
-	CHECK_HR(hr = this->ProcessOutput(&pSampleOut));
-	if (pSampleOut)
-	{
-		IMFMediaBuffer *pMediaBuffer = NULL;
-		SafeRelease(&pMediaBuffer);
-		CHECK_HR(hr = pSampleOut->GetBufferByIndex(0, &pMediaBuffer));
-		CHECK_HR(hr = pMediaBuffer->GetCurrentLength(&nLength));
-		if (nLength > 0)
-		{
-			BYTE* pBuffer = NULL;
-			CHECK_HR(hr = pMediaBuffer->Lock(&pBuffer, NULL, NULL));
-
-			//write to file
-			fwrite(pBuffer, 1, nLength, pf);
-			fflush(pf);
-		}
-		SafeRelease(&pSampleOut);
-		SafeRelease(&pMediaBuffer);
-	}
-
-bail:
-	return;
-}
-
-HRESULT CWmaEncoder::Drain()
-{
-	if (m_pMFT == NULL)
-	{
-		return MF_E_NOT_INITIALIZED;
-	}
-
-	return m_pMFT->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, m_dwInputID);
-}
-
-HRESULT CreateMediaSample(DWORD cbData, IMFSample **ppSample)
-{
-	HRESULT hr = S_OK;
-
-	IMFSample *pSample = NULL;
-	IMFMediaBuffer *pBuffer = NULL;
-
-	hr = MFCreateSample(&pSample);
-
-	if (SUCCEEDED(hr))
-	{
-		hr = MFCreateMemoryBuffer(cbData, &pBuffer);
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		hr = pSample->AddBuffer(pBuffer);
-	}
-
-	if (SUCCEEDED(hr))
-	{
-		*ppSample = pSample;
-		(*ppSample)->AddRef();
-	}
-
-	SafeRelease(&pSample);
-	SafeRelease(&pBuffer);
-	return hr;
-}
-
-HRESULT DUPLICATIONMANAGER::init_encoder()
-{
-	HRESULT hr = S_OK;
-	IMFMediaType    *pMediaTypeIn = NULL;
-	IMFMediaType    *pMediaTypeOut = NULL;
-	IMFSample *pSampleOut = NULL;
-	
-	IMFMediaBuffer *pMediaBuffer = NULL;
-	rtStart = 0;
-
-	//CHECK_HR(hr = MFStartup(MF_VERSION, 0));
-	encoder = new CWmaEncoder();
-	CHECK_HR(hr = encoder->Initialize());
-
-	CHECK_HR(hr = MFFrameRateToAverageTimePerFrame(VIDEO_FPS, 1, &rtDuration));
-
-	CHECK_HR(hr = MFCreateMediaType(&pMediaTypeIn));
-	CHECK_HR(hr = pMediaTypeIn->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video));
-	CHECK_HR(hr = pMediaTypeIn->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12));
-	CHECK_HR(hr = pMediaTypeIn->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive));
-	CHECK_HR(hr = MFSetAttributeSize(pMediaTypeIn, MF_MT_FRAME_SIZE, VIDEO_WIDTH, VIDEO_HEIGHT));
-	CHECK_HR(hr = MFSetAttributeRatio(pMediaTypeIn, MF_MT_FRAME_RATE, VIDEO_FPS, 1));
-	CHECK_HR(hr = MFSetAttributeRatio(pMediaTypeIn, MF_MT_PIXEL_ASPECT_RATIO, 1, 1));
-
-	CHECK_HR(hr = encoder->SetInputType(pMediaTypeIn));
-
-
-	return S_OK;	
-bail:
-	SafeRelease(&pMediaBuffer);
-	SafeRelease(&pMediaTypeIn);
-	SafeRelease(&pMediaTypeOut);
-	SafeRelease(&pSampleOut);
-	return S_FALSE;
 }
 

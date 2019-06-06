@@ -103,5 +103,6 @@ int main(int argc, char* argv[])
 	DuplMgr.Finalize();
 
 	fclose(log_file);
+	getchar();
     return 0;
 }

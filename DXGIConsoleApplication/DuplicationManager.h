@@ -13,6 +13,7 @@
 #include <sal.h>
 #include <new>
 #include <stdio.h>
+#include <stdint.h>
 
 extern HRESULT SystemTransitionsExpectedErrors[];
 extern HRESULT CreateDuplicationExpectedErrors[];
@@ -42,6 +43,7 @@ typedef struct _DX_RESOURCES
 } DX_RESOURCES;
 
 
+class CMediaFoundationEncoder;
 
 //
 // Handles the task of duplicating an output.
@@ -57,6 +59,9 @@ class DUPLICATIONMANAGER
 		DUPL_RETURN GetFrame(_Inout_ BYTE* ImageData);
 		void Finalize();
         DUPL_RETURN InitDupl(_In_ FILE *log_file, UINT Output);
+
+		HRESULT  CreateTextureForDevice();
+
 		int GetImageHeight();
 		int GetImageWidth();
 		int GetImagePitch();
@@ -78,8 +83,6 @@ class DUPLICATIONMANAGER
 		UINT64 rtDuration;
 
 	//methods
-		DUPL_RETURN InitializeDx();
-		HRESULT init_encoder();
 		_Post_satisfies_(return != DUPL_RETURN_SUCCESS)
 		DUPL_RETURN ProcessFailure(_In_opt_ ID3D11Device* Device, _In_ LPCWSTR Str, HRESULT hr, _In_opt_z_ HRESULT* ExpectedErrors = nullptr);
 		void DisplayMsg(_In_ LPCWSTR Str, HRESULT hr);
@@ -89,6 +92,11 @@ class DUPLICATIONMANAGER
 
 		IMFSinkWriter *pSinkWriter = NULL;
 		DWORD stream;
+
+		uint8_t* texture_to_yuv(ID3D11Texture2D *texture, size_t& len);
+
+		
+		CMediaFoundationEncoder* encoder = NULL;
 
 };
 
