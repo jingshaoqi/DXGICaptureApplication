@@ -161,7 +161,10 @@ HRESULT CMediaFoundationEncoder::SetInputAndOutputType()
 	m_dwInputID = 0;
 	m_dwOutputID = 0;
 
-	CHECK_HR(hr = m_pMFT->GetStreamIDs(1, &m_dwInputID, 1, &m_dwOutputID));	
+	hr = m_pMFT->GetStreamIDs(1, &m_dwInputID, 1, &m_dwOutputID);	
+	if (hr != S_OK&& hr != E_NOTIMPL) {
+		goto bail;
+	}
 
 	SafeRelease(&m_pOutputType);
 	CHECK_HR(hr = MFCreateMediaType(&m_pOutputType));
