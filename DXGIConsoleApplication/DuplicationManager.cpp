@@ -163,41 +163,41 @@ HRESULT InitializeSinkWriter(IMFSinkWriter **ppWriter, DWORD *pStreamIndex)
 //
 // Constructor sets up references / variables
 //
-DUPLICATIONMANAGER::DUPLICATIONMANAGER() : m_DeskDupl(nullptr),
-                                           m_AcquiredDesktopImage(nullptr),
-										   m_DestImage(nullptr),
-                                           m_OutputNumber(0),
-										   m_ImagePitch(0),
-										   m_DxRes(nullptr)
+DuplicationManager::DuplicationManager() : m_DeskDupl(nullptr),
+m_AcquiredDesktopImage(nullptr),
+m_DestImage(nullptr),
+m_OutputNumber(0),
+m_ImagePitch(0),
+m_DxRes(nullptr)
 {
-    RtlZeroMemory(&m_OutputDesc, sizeof(m_OutputDesc));
+	RtlZeroMemory(&m_OutputDesc, sizeof(m_OutputDesc));
 }
 
 //
 // Destructor simply calls CleanRefs to destroy everything
 //
-DUPLICATIONMANAGER::~DUPLICATIONMANAGER()
+DuplicationManager::~DuplicationManager()
 {
-    if (m_DeskDupl)
-    {
-        m_DeskDupl->Release();
-        m_DeskDupl = nullptr;
-    }
-    if (m_AcquiredDesktopImage)
-    {
-        m_AcquiredDesktopImage->Release();
-        m_AcquiredDesktopImage = nullptr;
-    }
+	if (m_DeskDupl)
+	{
+		m_DeskDupl->Release();
+		m_DeskDupl = nullptr;
+	}
+	if (m_AcquiredDesktopImage)
+	{
+		m_AcquiredDesktopImage->Release();
+		m_AcquiredDesktopImage = nullptr;
+	}
 	if (m_DestImage)
 	{
 		m_DestImage->Release();
 		m_DestImage = nullptr;
 	}
-    if (m_DxRes->Device)
-    {
+	if (m_DxRes->Device)
+	{
 		m_DxRes->Device->Release();
 		m_DxRes->Device = nullptr;
-    }
+	}
 	if (m_DxRes->Device)
 	{
 		m_DxRes->Device->Release();
@@ -213,7 +213,7 @@ DUPLICATIONMANAGER::~DUPLICATIONMANAGER()
 //
 // Initialize duplication interfaces
 //
-DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
+HRESULT DuplicationManager::InitDupl(_In_ FILE *log_file, UINT Output)
 {
 	m_log_file = log_file;
 	m_DxRes = new (std::nothrow) DX_RESOURCES;
@@ -224,6 +224,7 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 	// Feature levels supported
 	D3D_FEATURE_LEVEL FeatureLevels[] =
 	{
+		D3D_FEATURE_LEVEL_11_1,
 		D3D_FEATURE_LEVEL_11_0,
 		D3D_FEATURE_LEVEL_10_1,
 		D3D_FEATURE_LEVEL_10_0,
@@ -241,61 +242,65 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 		return ProcessFailure(nullptr, L"Failed to create device in InitializeDx", hr);
 	}
 
-    m_OutputNumber = Output;
+	m_OutputNumber = Output;
 
-    // Get DXGI device
-    IDXGIDevice* DxgiDevice = nullptr;
-    hr = m_DxRes->Device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&DxgiDevice));
-    if (FAILED(hr))
-    {
-        return ProcessFailure(nullptr, L"Failed to QI for DXGI Device", hr);
-    }
+	// Get DXGI device
+	IDXGIDevice* DxgiDevice = nullptr;
+	hr = m_DxRes->Device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&DxgiDevice));
+	if (FAILED(hr))
+	{
+		return ProcessFailure(nullptr, L"Failed to QI for DXGI Device", hr);
+	}
 
-    // Get DXGI adapter
-    IDXGIAdapter* DxgiAdapter = nullptr;
-    hr = DxgiDevice->GetParent(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&DxgiAdapter));
-    DxgiDevice->Release();
-    DxgiDevice = nullptr;
-    if (FAILED(hr))
-    {
-        return ProcessFailure(m_DxRes->Device, L"Failed to get parent DXGI Adapter", hr, SystemTransitionsExpectedErrors);
-    }
+	// Get DXGI adapter
+	IDXGIAdapter* DxgiAdapter = nullptr;
+	hr = DxgiDevice->GetParent(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&DxgiAdapter));
+	DxgiDevice->Release();
+	DxgiDevice = nullptr;
+	if (FAILED(hr))
+	{
+		return ProcessFailure(m_DxRes->Device, L"Failed to get parent DXGI Adapter", hr, SystemTransitionsExpectedErrors);
+	}
 
-    // Get output
-    IDXGIOutput* DxgiOutput = nullptr;
-    hr = DxgiAdapter->EnumOutputs(Output, &DxgiOutput);
-    DxgiAdapter->Release();
-    DxgiAdapter = nullptr;
-    if (FAILED(hr))
-    {
-        return ProcessFailure(m_DxRes->Device, L"Failed to get specified output in DUPLICATIONMANAGER", hr, EnumOutputsExpectedErrors);
-    }
+	// Get output
+	IDXGIOutput* DxgiOutput = nullptr;
+	hr = DxgiAdapter->EnumOutputs(Output, &DxgiOutput);
+	DxgiAdapter->Release();
+	DxgiAdapter = nullptr;
+	if (FAILED(hr))
+	{
+		return ProcessFailure(m_DxRes->Device, L"Failed to get specified output in DUPLICATIONMANAGER", hr, EnumOutputsExpectedErrors);
+	}
 
-    DxgiOutput->GetDesc(&m_OutputDesc);
+	hr = DxgiOutput->GetDesc(&m_OutputDesc);
+	if (FAILED(hr))
+	{
+		return ProcessFailure(m_DxRes->Device, L"Failed to GetDesc in DUPLICATIONMANAGER", hr, EnumOutputsExpectedErrors);
+	}
 
-    // QI for Output 1
-    IDXGIOutput1* DxgiOutput1 = nullptr;
-    hr = DxgiOutput->QueryInterface(__uuidof(DxgiOutput1), reinterpret_cast<void**>(&DxgiOutput1));
-    DxgiOutput->Release();
-    DxgiOutput = nullptr;
-    if (FAILED(hr))
-    {
-        return ProcessFailure(nullptr, L"Failed to QI for DxgiOutput1 in DUPLICATIONMANAGER", hr);
-    }
+	// QI for Output 1
+	IDXGIOutput1* DxgiOutput1 = nullptr;
+	hr = DxgiOutput->QueryInterface(__uuidof(DxgiOutput1), reinterpret_cast<void**>(&DxgiOutput1));
+	DxgiOutput->Release();
+	DxgiOutput = nullptr;
+	if (FAILED(hr))
+	{
+		return ProcessFailure(nullptr, L"Failed to QI for DxgiOutput1 in DUPLICATIONMANAGER", hr);
+	}
 
-    // Create desktop duplication
-    hr = DxgiOutput1->DuplicateOutput(m_DxRes->Device, &m_DeskDupl);
-    DxgiOutput1->Release();
-    DxgiOutput1 = nullptr;
-    if (FAILED(hr))
-    {
-        if (hr == DXGI_ERROR_NOT_CURRENTLY_AVAILABLE)
-        {
-            MessageBoxW(nullptr, L"There is already the maximum number of applications using the Desktop Duplication API running, please close one of those applications and then try again.", L"Error", MB_OK);
-            return DUPL_RETURN_ERROR_UNEXPECTED;
-        }
-        return ProcessFailure(m_DxRes->Device, L"Failed to get duplicate output in DUPLICATIONMANAGER", hr, CreateDuplicationExpectedErrors);
-    }
+	// Create desktop duplication
+	hr = DxgiOutput1->DuplicateOutput(m_DxRes->Device, &m_DeskDupl);
+	DxgiOutput1->Release();
+	DxgiOutput1 = nullptr;
+	if (FAILED(hr))
+	{
+		if (hr == DXGI_ERROR_NOT_CURRENTLY_AVAILABLE)
+		{
+			MessageBoxW(nullptr, L"There is already the maximum number of applications using the Desktop Duplication API running, please close one of those applications and then try again.", L"Error", MB_OK);
+			return S_FALSE;
+		}
+		return ProcessFailure(m_DxRes->Device, L"Failed to get duplicate output in DUPLICATIONMANAGER", hr, CreateDuplicationExpectedErrors);
+	}
 
 	//hr  = InitRawCapture();
 	hr = InitYUV420Capture();
@@ -310,15 +315,15 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 	{
 		return ProcessFailure(nullptr, L"Failed to init_encoder in DUPLICATIONMANAGER", hr);
 	}
-// 	hr = InitializeSinkWriter(&pSinkWriter, &stream);
-// 	if (FAILED(hr))
-// 	{
-// 		return ProcessFailure(nullptr, L"Failed to InitializeSinkWriter in DUPLICATIONMANAGER", hr);
-// 	}
-    return DUPL_RETURN_SUCCESS;
+	// 	hr = InitializeSinkWriter(&pSinkWriter, &stream);
+	// 	if (FAILED(hr))
+	// 	{
+	// 		return ProcessFailure(nullptr, L"Failed to InitializeSinkWriter in DUPLICATIONMANAGER", hr);
+	// 	}
+	return S_OK;
 }
 
-HRESULT DUPLICATIONMANAGER::InitRawCapture()
+HRESULT DuplicationManager::InitRawCapture()
 {
 	HRESULT hr = S_OK;
 	D3D11_TEXTURE2D_DESC desc;
@@ -341,18 +346,18 @@ HRESULT DUPLICATIONMANAGER::InitRawCapture()
 	if (FAILED(hr))
 	{
 		ProcessFailure(nullptr, L"Creating cpu accessible texture failed.", hr);
-		return DUPL_RETURN_ERROR_UNEXPECTED;
+		return S_FALSE;
 	}
 
 	if (m_DestImage == nullptr)
 	{
 		ProcessFailure(nullptr, L"Creating cpu accessible texture failed.", hr);
-		return DUPL_RETURN_ERROR_UNEXPECTED;
+		return S_FALSE;
 	}
 	return hr;
 }
 
-HRESULT DUPLICATIONMANAGER::InitYUV420Capture()
+HRESULT DuplicationManager::InitYUV420Capture()
 {
 	HRESULT status;
 	D3D11_TEXTURE2D_DESC texDesc;
@@ -422,7 +427,7 @@ void texture_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
 	*pp_sample = sample;
 }
 
-uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t *in_data, size_t in_len, size_t& out_len)
+uint8_t* DuplicationManager::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t *in_data, size_t in_len, size_t& out_len)
 {
 	HRESULT result;
 	bool timeout;
@@ -435,8 +440,8 @@ uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t
 		D3D11_MAPPED_SUBRESOURCE mapping;
 		D3D11_TEXTURE2D_DESC     desc;
 
-		m_texture[i]->GetDesc(&desc);
-		status = m_DxRes->Context->Map(m_texture[i], 0, D3D11_MAP_READ, 0, &mapping);
+		texture[i]->GetDesc(&desc);
+		status = m_DxRes->Context->Map(texture[i], 0, D3D11_MAP_READ, 0, &mapping);
 		if (FAILED(status))
 		{
 			DEBUG_WINERROR("Failed to map the texture", status);
@@ -447,7 +452,7 @@ uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t
 		const unsigned int size = desc.Height * desc.Width;
 		if (size > remain)
 		{
-			m_DxRes->Context->Unmap(m_texture[i], 0);
+			m_DxRes->Context->Unmap(texture[i], 0);
 			DEBUG_ERROR("Too much data to fit in buffer");
 
 			return NULL;
@@ -460,7 +465,7 @@ uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t
 			data += desc.Width;
 			src += mapping.RowPitch;
 		}
-		m_DxRes->Context->Unmap(m_texture[i], 0);
+		m_DxRes->Context->Unmap(texture[i], 0);
 		remain -= size;
 	}
 	size_t buf_size = in_len - remain;
@@ -469,7 +474,7 @@ uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t
 	return in_data;
 }
 
-IMFSample* DUPLICATIONMANAGER::text_to_yuv_to_sample(ID3D11Texture2D *texture[3], IMFMediaBuffer** pp_buf)
+IMFSample* DuplicationManager::text_to_yuv_to_sample(ID3D11Texture2D *texture[3], IMFMediaBuffer** pp_buf)
 {
 	IMFMediaBuffer *buf = NULL;
 	size_t len = (VIDEO_WIDTH * VIDEO_HEIGHT * 3) >> 1;
@@ -482,19 +487,19 @@ IMFSample* DUPLICATIONMANAGER::text_to_yuv_to_sample(ID3D11Texture2D *texture[3]
 
 	BYTE* t = NULL;
 	size_t out_len = 0;
-	hr = buf->Lock(&t, NULL, NULL);	
+	hr = buf->Lock(&t, NULL, NULL);
 	uint8_t *p = texture_to_yuv(texture, t, len, out_len);
 	buf->Unlock();
 
 	buf->SetCurrentLength(len);
 
-// 	static int g_index = 1;
-// 	char buf_file[32];
-// 	sprintf_s(buf_file, sizeof(buf_file), "d_%03d.yuv", g_index++);
-// 	FILE *pf = NULL;
-// 	fopen_s(&pf, buf_file, "wb");
-// 	fwrite(p, len, 1, pf);
-// 	fclose(pf);
+	// 	static int g_index = 1;
+	// 	char buf_file[32];
+	// 	sprintf_s(buf_file, sizeof(buf_file), "d_%03d.yuv", g_index++);
+	// 	FILE *pf = NULL;
+	// 	fopen_s(&pf, buf_file, "wb");
+	// 	fwrite(p, len, 1, pf);
+	// 	fclose(pf);
 
 	IMFSample *sample;
 	MFCreateSample(&sample);
@@ -511,39 +516,39 @@ IMFSample* DUPLICATIONMANAGER::text_to_yuv_to_sample(ID3D11Texture2D *texture[3]
 //
 // Get next frame and write it into Data
 //
-_Success_(*Timeout == false && return == DUPL_RETURN_SUCCESS)
-DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
+_Success_(*Timeout == false && return == S_OK)
+HRESULT DuplicationManager::GetFrame(_Inout_ BYTE* ImageData)
 {
-    IDXGIResource* DesktopResource = nullptr;
-    DXGI_OUTDUPL_FRAME_INFO FrameInfo;
+	IDXGIResource* DesktopResource = nullptr;
+	DXGI_OUTDUPL_FRAME_INFO FrameInfo;
 
-    // Get new frame
-    HRESULT hr = m_DeskDupl->AcquireNextFrame(500, &FrameInfo, &DesktopResource);
-    if (hr == DXGI_ERROR_WAIT_TIMEOUT)
-    {
-        return DUPL_RETURN_SUCCESS;
-    }
+	// Get new frame
+	HRESULT hr = m_DeskDupl->AcquireNextFrame(500, &FrameInfo, &DesktopResource);
+	if (hr == DXGI_ERROR_WAIT_TIMEOUT)
+	{
+		return S_OK;
+	}
 
-    if (FAILED(hr))
-    {
-        return ProcessFailure(m_DxRes->Device, L"Failed to acquire next frame in DUPLICATIONMANAGER", hr, FrameInfoExpectedErrors);
-    }
+	if (FAILED(hr))
+	{
+		return ProcessFailure(m_DxRes->Device, L"Failed to acquire next frame in DUPLICATIONMANAGER", hr, FrameInfoExpectedErrors);
+	}
 
-    // If still holding old frame, destroy it
-    if (m_AcquiredDesktopImage)
-    {
-        m_AcquiredDesktopImage->Release();
-        m_AcquiredDesktopImage = nullptr;
-    }
+	// If still holding old frame, destroy it
+	if (m_AcquiredDesktopImage)
+	{
+		m_AcquiredDesktopImage->Release();
+		m_AcquiredDesktopImage = nullptr;
+	}
 
-    // QI for IDXGIResource
-    hr = DesktopResource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&m_AcquiredDesktopImage));
-    DesktopResource->Release();
-    DesktopResource = nullptr;
-    if (FAILED(hr))
-    {
-        return ProcessFailure(nullptr, L"Failed to QI for ID3D11Texture2D from acquired IDXGIResource in DUPLICATIONMANAGER", hr);
-    }
+	// QI for IDXGIResource
+	hr = DesktopResource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&m_AcquiredDesktopImage));
+	DesktopResource->Release();
+	DesktopResource = nullptr;
+	if (FAILED(hr))
+	{
+		return ProcessFailure(nullptr, L"Failed to QI for ID3D11Texture2D from acquired IDXGIResource in DUPLICATIONMANAGER", hr);
+	}
 
 #if 0
 	{
@@ -561,7 +566,7 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
 		hr = pSinkWriter->WriteSample(stream, sample);
 		//SafeRelease(&sample);
 
-		
+
 		DoneWithFrame();
 		return DUPL_RETURN_SUCCESS;
 	}
@@ -569,17 +574,17 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
 	{
 		TextureList planes;
 		if (!m_textureConverter->Convert(m_AcquiredDesktopImage, planes))
-			return DUPL_RETURN_ERROR_EXPECTED;
+			return S_FALSE;
 
 		for (int i = 0; i < 3; ++i)
 		{
 			ID3D11Texture2DPtr t = planes.at(i);
 			m_DxRes->Context->CopyResource(m_texture[i], t);
 		}
-		
+
 		IMFMediaBuffer *buf = NULL;
 		IMFSample *sample = text_to_yuv_to_sample(m_texture, &buf);
-		
+
 		//hr = pSinkWriter->WriteSample(stream, sample);
 		encoder->EncodeToH264BySample(sample);
 
@@ -587,27 +592,27 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
 		SafeRelease(&buf);
 
 		DoneWithFrame();
-		return DUPL_RETURN_SUCCESS;
-}
+		return S_OK;
+	}
 #endif
 
-	
+
 
 	CopyImage(ImageData);
-	
-    return DUPL_RETURN_SUCCESS;
+
+	return S_OK;
 }
 
-void DUPLICATIONMANAGER::Finalize()
+void DuplicationManager::Finalize()
 {
-	if (pSinkWriter) 
+	if (pSinkWriter)
 	{
 		pSinkWriter->Finalize();
 	}
-	
+
 }
 
-void  DUPLICATIONMANAGER::CopyImage(BYTE* ImageData)
+void  DuplicationManager::CopyImage(BYTE* ImageData)
 {
 	m_DxRes->Context->CopyResource(m_DestImage, m_AcquiredDesktopImage);
 	D3D11_MAPPED_SUBRESOURCE resource;
@@ -626,7 +631,7 @@ void  DUPLICATIONMANAGER::CopyImage(BYTE* ImageData)
 	DoneWithFrame();
 }
 
-int DUPLICATIONMANAGER::GetImageHeight()
+int DuplicationManager::GetImageHeight()
 {
 	DXGI_OUTDUPL_DESC lOutputDuplDesc;
 	m_DeskDupl->GetDesc(&lOutputDuplDesc);
@@ -634,7 +639,7 @@ int DUPLICATIONMANAGER::GetImageHeight()
 }
 
 
-int DUPLICATIONMANAGER::GetImageWidth()
+int DuplicationManager::GetImageWidth()
 {
 	DXGI_OUTDUPL_DESC lOutputDuplDesc;
 	m_DeskDupl->GetDesc(&lOutputDuplDesc);
@@ -642,7 +647,7 @@ int DUPLICATIONMANAGER::GetImageWidth()
 }
 
 
-int DUPLICATIONMANAGER::GetImagePitch()
+int DuplicationManager::GetImagePitch()
 {
 	return m_ImagePitch;
 }
@@ -650,33 +655,33 @@ int DUPLICATIONMANAGER::GetImagePitch()
 //
 // Release frame
 //
-DUPL_RETURN DUPLICATIONMANAGER::DoneWithFrame()
+HRESULT DuplicationManager::DoneWithFrame()
 {
-    HRESULT hr = m_DeskDupl->ReleaseFrame();
-    if (FAILED(hr))
-    {
-        return ProcessFailure(m_DxRes->Device, L"Failed to release frame in DUPLICATIONMANAGER", hr, FrameInfoExpectedErrors);
-    }
+	HRESULT hr = m_DeskDupl->ReleaseFrame();
+	if (FAILED(hr))
+	{
+		return ProcessFailure(m_DxRes->Device, L"Failed to release frame in DUPLICATIONMANAGER", hr, FrameInfoExpectedErrors);
+	}
 
-    if (m_AcquiredDesktopImage)
-    {
-        m_AcquiredDesktopImage->Release();
-        m_AcquiredDesktopImage = nullptr;
-    }
+	if (m_AcquiredDesktopImage)
+	{
+		m_AcquiredDesktopImage->Release();
+		m_AcquiredDesktopImage = nullptr;
+	}
 
-    return DUPL_RETURN_SUCCESS;
+	return S_OK;
 }
 
 //
 // Gets output desc into DescPtr
 //
-void DUPLICATIONMANAGER::GetOutputDesc(_Out_ DXGI_OUTPUT_DESC* DescPtr)
+void DuplicationManager::GetOutputDesc(_Out_ DXGI_OUTPUT_DESC* DescPtr)
 {
-    *DescPtr = m_OutputDesc;
+	*DescPtr = m_OutputDesc;
 }
 
-_Post_satisfies_(return != DUPL_RETURN_SUCCESS)
-DUPL_RETURN DUPLICATIONMANAGER::ProcessFailure(_In_opt_ ID3D11Device* Device, _In_ LPCWSTR Str, HRESULT hr, _In_opt_z_ HRESULT* ExpectedErrors)
+_Post_satisfies_(return != S_OK)
+HRESULT DuplicationManager::ProcessFailure(_In_opt_ ID3D11Device* Device, _In_ LPCWSTR Str, HRESULT hr, _In_opt_z_ HRESULT* ExpectedErrors)
 {
 	HRESULT TranslatedHr;
 
@@ -725,7 +730,7 @@ DUPL_RETURN DUPLICATIONMANAGER::ProcessFailure(_In_opt_ ID3D11Device* Device, _I
 		{
 			if (*(CurrentResult++) == TranslatedHr)
 			{
-				return DUPL_RETURN_ERROR_EXPECTED;
+				return S_FALSE;
 			}
 		}
 	}
@@ -733,13 +738,13 @@ DUPL_RETURN DUPLICATIONMANAGER::ProcessFailure(_In_opt_ ID3D11Device* Device, _I
 	// Error was not expected so display the message box
 	DisplayMsg(Str, TranslatedHr);
 
-	return DUPL_RETURN_ERROR_UNEXPECTED;
+	return S_FALSE;
 }
 
 //
 // Displays a message
 //
-void DUPLICATIONMANAGER::DisplayMsg(_In_ LPCWSTR Str, HRESULT hr)
+void DuplicationManager::DisplayMsg(_In_ LPCWSTR Str, HRESULT hr)
 {
 	if (SUCCEEDED(hr))
 	{

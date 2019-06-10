@@ -60,7 +60,7 @@ HRESULT CMediaFoundationEncoder::Initialize()
 		NULL,               // Attributes to match. (None.)
 		&pCLSIDs,           // Receives a pointer to an array of CLSIDs.
 		&count              // Receives the size of the array.
-		));	
+		));
 
 	if (count == 0)
 	{
@@ -73,14 +73,14 @@ HRESULT CMediaFoundationEncoder::Initialize()
 
 
 	//Create the MFT decoder
-	CHECK_HR(hr = CoCreateInstance(pCLSIDs[0], NULL,CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_pMFT)));
-	CHECK_HR(hr = m_pMFT->QueryInterface(IID_PPV_ARGS(&pCodecAPI)));	
+	CHECK_HR(hr = CoCreateInstance(pCLSIDs[0], NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_pMFT)));
+	CHECK_HR(hr = m_pMFT->QueryInterface(IID_PPV_ARGS(&pCodecAPI)));
 
-	
+
 	// FIXME: encoder only
 	var.vt = VT_UI4;
 	var.ulVal = 0;
-	CHECK_HR(hr= pCodecAPI->SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &var));
+	CHECK_HR(hr = pCodecAPI->SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &var));
 
 	var.vt = VT_BOOL;
 	var.boolVal = VARIANT_TRUE;
@@ -110,7 +110,12 @@ HRESULT CMediaFoundationEncoder::Initialize()
 	CHECK_HR(hr = CreateMediaSample(VIDEO_BUFFER_SIZE, &pSampleIn));
 	CHECK_HR(hr = pSampleIn->SetSampleDuration(VIDEO_FRAME_DURATION));
 
-	fopen_s(&pf, "test-desktop.h264", "wb");
+	errno_t t = fopen_s(&pf, "test-desktop.h264", "wb");
+	if (t != 0) 
+	{
+		printf("fopen file fail:%m\n");
+		return S_FALSE;
+	}
 	return hr;
 bail:
 	return hr;
@@ -161,7 +166,7 @@ HRESULT CMediaFoundationEncoder::SetInputAndOutputType()
 	m_dwInputID = 0;
 	m_dwOutputID = 0;
 
-	hr = m_pMFT->GetStreamIDs(1, &m_dwInputID, 1, &m_dwOutputID);	
+	hr = m_pMFT->GetStreamIDs(1, &m_dwInputID, 1, &m_dwOutputID);
 	if (hr != S_OK&& hr != E_NOTIMPL) {
 		goto bail;
 	}
@@ -416,6 +421,8 @@ void CMediaFoundationEncoder::EncodeToH264BySample(IMFSample* pSample)
 		//write to file
 		fwrite(pBuffer, 1, nLength, pf);
 		fflush(pf);
+
+		pMediaBuffer->Unlock();
 	}
 	SafeRelease(&pSampleOut);
 	SafeRelease(&pMediaBuffer);
