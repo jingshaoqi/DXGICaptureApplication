@@ -99,7 +99,7 @@ HRESULT CMediaFoundationEncoder::Initialize()
 #endif
 #if defined(CODECAPI_AVEncCommonMeanBitRate) // Win8 only
 	var.vt = VT_UI4;
-	var.ullVal = 1000000;
+	var.ullVal = 4000000;
 	hr = pCodecAPI->SetValue(&CODECAPI_AVEncCommonMeanBitRate, &var);
 
 #endif

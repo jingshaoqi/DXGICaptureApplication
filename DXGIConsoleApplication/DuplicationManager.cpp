@@ -488,6 +488,14 @@ IMFSample* DUPLICATIONMANAGER::text_to_yuv_to_sample(ID3D11Texture2D *texture[3]
 
 	buf->SetCurrentLength(len);
 
+// 	static int g_index = 1;
+// 	char buf_file[32];
+// 	sprintf_s(buf_file, sizeof(buf_file), "d_%03d.yuv", g_index++);
+// 	FILE *pf = NULL;
+// 	fopen_s(&pf, buf_file, "wb");
+// 	fwrite(p, len, 1, pf);
+// 	fclose(pf);
+
 	IMFSample *sample;
 	MFCreateSample(&sample);
 	sample->AddBuffer(buf);

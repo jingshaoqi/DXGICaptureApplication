@@ -106,6 +106,8 @@ int main(int argc, char* argv[])
 	while (1)
 	{
 		printf("are you quit (Y/n)\n");
+		printf("are you quit (Y/n)\n");
+		printf("are you quit (Y/n)\n");
 		char k = getchar();
 		if (k == 'y' || k == 'Y') {
 			break;
