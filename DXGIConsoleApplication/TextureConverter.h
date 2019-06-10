@@ -54,10 +54,10 @@ private:
 
   bool IntializeBuffers();
 
-  ID3D11DeviceContextPtr m_deviceContext;
-  ID3D11DevicePtr        m_device;
-  unsigned int           m_width, m_height;
-  FrameType              m_format;
+  ID3D11DeviceContextPtr m_deviceContext = NULL;
+  ID3D11DevicePtr        m_device = NULL;
+  unsigned int           m_width = 0, m_height = 0;
+  FrameType              m_format =  FRAME_TYPE_INVALID;
 
   DXGI_FORMAT                 m_texFormats   [3];
   unsigned int                m_scaleFormats [3];
@@ -66,15 +66,15 @@ private:
   ID3D11RenderTargetViewPtr   m_renderView   [3];
   ID3D11ShaderResourceViewPtr m_shaderView   [3];
 
-  ID3D11InputLayoutPtr        m_layout;
-  ID3D11VertexShaderPtr       m_vertexShader;
-  ID3D11PixelShaderPtr        m_psCopy;
-  ID3D11PixelShaderPtr        m_psConversion;
-  ID3D11SamplerStatePtr       m_samplerState;
+  ID3D11InputLayoutPtr        m_layout =  NULL;
+  ID3D11VertexShaderPtr       m_vertexShader = NULL;
+  ID3D11PixelShaderPtr        m_psCopy = NULL;
+  ID3D11PixelShaderPtr        m_psConversion = NULL;
+  ID3D11SamplerStatePtr       m_samplerState = NULL;
 
-  ID3D11BufferPtr             m_vertexBuffer;
-  unsigned int                m_vertexCount;
-  ID3D11BufferPtr             m_indexBuffer;
-  unsigned int                m_indexCount;
+  ID3D11BufferPtr             m_vertexBuffer =NULL;
+  unsigned int                m_vertexCount =0;
+  ID3D11BufferPtr             m_indexBuffer = NULL;
+  unsigned int                m_indexCount = 0;
 };
 

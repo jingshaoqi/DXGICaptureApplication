@@ -103,6 +103,14 @@ int main(int argc, char* argv[])
 	DuplMgr.Finalize();
 
 	fclose(log_file);
-	getchar();
+	while (1)
+	{
+		printf("are you quit (Y/n)\n");
+		char k = getchar();
+		if (k == 'y' || k == 'Y') {
+			break;
+		}
+	}
+	
     return 0;
 }

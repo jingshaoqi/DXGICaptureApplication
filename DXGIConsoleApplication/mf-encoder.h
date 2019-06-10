@@ -65,6 +65,7 @@ public:
 	HRESULT ProcessOutput(IMFSample **ppSample);
 	HRESULT Drain();
 	void EncodeToH264(ID3D11Texture2D *texture);
+	void EncodeToH264BySample(IMFSample* pSample);
 
 	LONGLONG rtStart = 0;
 	UINT64 rtDuration = 0;

@@ -9,6 +9,9 @@
 #include "mfobjects.h"
 #include "DuplicationManager.h"
 #include "mf-encoder.h"
+#include "common/debug.h"
+#include "common/memcpySSE.h"
+#include "TextureConverter.h"
 
 // Below are lists of errors expect from Dxgi API calls when a transition event like mode change, PnpStop, PnpStart
 // desktop switch, TDR or session disconnect/reconnect. In all these cases we want the application to clean up the threads that process
@@ -50,7 +53,112 @@ HRESULT EnumOutputsExpectedErrors[] = {
 	S_OK                                    // Terminate list with zero valued HRESULT
 };
 
+HRESULT InitializeSinkWriter(IMFSinkWriter **ppWriter, DWORD *pStreamIndex);
 
+HRESULT InitializeSinkWriter(IMFSinkWriter **ppWriter, DWORD *pStreamIndex)
+{
+	*ppWriter = NULL;
+	*pStreamIndex = NULL;
+
+	IMFSinkWriter   *pSinkWriter = NULL;
+	IMFMediaType    *pMediaTypeOut = NULL;
+	IMFMediaType    *pMediaTypeIn = NULL;
+	DWORD           streamIndex;
+
+	HRESULT hr = MFCreateSinkWriterFromURL(L"output.mp4", NULL, NULL, &pSinkWriter);
+
+	// Set the output media type.
+	if (SUCCEEDED(hr))
+	{
+		hr = MFCreateMediaType(&pMediaTypeOut);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeOut->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeOut->SetGUID(MF_MT_SUBTYPE, VIDEO_ENCODING_FORMAT);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeOut->SetUINT32(MF_MT_AVG_BITRATE, VIDEO_BIT_RATE);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeOut->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = MFSetAttributeSize(pMediaTypeOut, MF_MT_FRAME_SIZE, VIDEO_WIDTH, VIDEO_HEIGHT);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = MFSetAttributeRatio(pMediaTypeOut, MF_MT_FRAME_RATE, VIDEO_FPS, 1);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = MFSetAttributeRatio(pMediaTypeOut, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pSinkWriter->AddStream(pMediaTypeOut, &streamIndex);
+	}
+
+	// Set the input media type.
+	if (SUCCEEDED(hr))
+	{
+		hr = MFCreateMediaType(&pMediaTypeIn);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeIn->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeIn->SetGUID(MF_MT_SUBTYPE, VIDEO_INPUT_FORMAT);
+		//hr = pMediaTypeIn->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pMediaTypeIn->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = MFSetAttributeSize(pMediaTypeIn, MF_MT_FRAME_SIZE, VIDEO_WIDTH, VIDEO_HEIGHT);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = MFSetAttributeRatio(pMediaTypeIn, MF_MT_FRAME_RATE, VIDEO_FPS, 1);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = MFSetAttributeRatio(pMediaTypeIn, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+	}
+	if (SUCCEEDED(hr))
+	{
+		hr = pSinkWriter->SetInputMediaType(streamIndex, pMediaTypeIn, NULL);
+	}
+
+	// Tell the sink writer to start accepting data.
+	if (SUCCEEDED(hr))
+	{
+		hr = pSinkWriter->BeginWriting();
+	}
+
+	// Return the pointer to the caller.
+	if (SUCCEEDED(hr))
+	{
+		*ppWriter = pSinkWriter;
+		(*ppWriter)->AddRef();
+		*pStreamIndex = streamIndex;
+	}
+
+	SafeRelease(&pSinkWriter);
+	SafeRelease(&pMediaTypeOut);
+	SafeRelease(&pMediaTypeIn);
+	return hr;
+}
 
 //
 // Constructor sets up references / variables
@@ -189,7 +297,8 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
         return ProcessFailure(m_DxRes->Device, L"Failed to get duplicate output in DUPLICATIONMANAGER", hr, CreateDuplicationExpectedErrors);
     }
 
-	hr  = CreateTextureForDevice();
+	//hr  = InitRawCapture();
+	hr = InitYUV420Capture();
 	if (FAILED(hr))
 	{
 		return ProcessFailure(nullptr, L"Failed CreateTextureForDevice in DUPLICATIONMANAGER", hr);
@@ -201,11 +310,15 @@ DUPL_RETURN DUPLICATIONMANAGER::InitDupl(_In_ FILE *log_file, UINT Output)
 	{
 		return ProcessFailure(nullptr, L"Failed to init_encoder in DUPLICATIONMANAGER", hr);
 	}
-
+// 	hr = InitializeSinkWriter(&pSinkWriter, &stream);
+// 	if (FAILED(hr))
+// 	{
+// 		return ProcessFailure(nullptr, L"Failed to InitializeSinkWriter in DUPLICATIONMANAGER", hr);
+// 	}
     return DUPL_RETURN_SUCCESS;
 }
 
-HRESULT DUPLICATIONMANAGER::CreateTextureForDevice()
+HRESULT DUPLICATIONMANAGER::InitRawCapture()
 {
 	HRESULT hr = S_OK;
 	D3D11_TEXTURE2D_DESC desc;
@@ -239,6 +352,55 @@ HRESULT DUPLICATIONMANAGER::CreateTextureForDevice()
 	return hr;
 }
 
+HRESULT DUPLICATIONMANAGER::InitYUV420Capture()
+{
+	HRESULT status;
+	D3D11_TEXTURE2D_DESC texDesc;
+
+	ZeroMemory(&texDesc, sizeof(texDesc));
+	texDesc.Width = VIDEO_WIDTH;
+	texDesc.Height = VIDEO_HEIGHT;
+	texDesc.MipLevels = 1;
+	texDesc.ArraySize = 1;
+	texDesc.SampleDesc.Count = 1;
+	texDesc.SampleDesc.Quality = 0;
+	texDesc.Usage = D3D11_USAGE_STAGING;
+	texDesc.Format = DXGI_FORMAT_R8_UNORM;
+	texDesc.BindFlags = 0;
+	texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	texDesc.MiscFlags = 0;
+
+	status = m_DxRes->Device->CreateTexture2D(&texDesc, NULL, &m_texture[0]);
+	if (FAILED(status))
+	{
+		DEBUG_WINERROR("Failed to create texture", status);
+		return false;
+	}
+
+	texDesc.Width /= 2;
+	texDesc.Height /= 2;
+
+	status = m_DxRes->Device->CreateTexture2D(&texDesc, NULL, &m_texture[1]);
+	if (FAILED(status))
+	{
+		DEBUG_WINERROR("Failed to create texture", status);
+		return false;
+	}
+
+	status = m_DxRes->Device->CreateTexture2D(&texDesc, NULL, &m_texture[2]);
+	if (FAILED(status))
+	{
+		DEBUG_WINERROR("Failed to create texture", status);
+		return false;
+	}
+
+	m_textureConverter = new TextureConverter();
+	if (!m_textureConverter->Initialize(m_DxRes->Context, m_DxRes->Device, VIDEO_WIDTH, VIDEO_HEIGHT, FRAME_TYPE_YUV420))
+		return false;
+
+	return true;
+}
+
 void texture_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
 {
 	HRESULT status;
@@ -260,77 +422,82 @@ void texture_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
 	*pp_sample = sample;
 }
 
-uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture, size_t& len)
+uint8_t* DUPLICATIONMANAGER::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t *in_data, size_t in_len, size_t& out_len)
 {
 	HRESULT result;
 	bool timeout;
 
-	size_t    remain = 32 * 1024 * 1024;
-	uint8_t * data = (uint8_t *)malloc(remain);
-	size_t init_size = remain;
-	uint8_t * init_ptr = data;
+	size_t    remain = in_len;
+	uint8_t * data = in_data;
 	for (int i = 0; i < 3; ++i)
 	{
 		HRESULT                  status;
 		D3D11_MAPPED_SUBRESOURCE mapping;
 		D3D11_TEXTURE2D_DESC     desc;
-		/*
+
 		m_texture[i]->GetDesc(&desc);
-		status = m_deviceContext->Map(m_texture[i], 0, D3D11_MAP_READ, 0, &mapping);
+		status = m_DxRes->Context->Map(m_texture[i], 0, D3D11_MAP_READ, 0, &mapping);
 		if (FAILED(status))
 		{
 			DEBUG_WINERROR("Failed to map the texture", status);
-			DeInitialize();
-			free(init_ptr);
-			return GRAB_STATUS_ERROR;
+			//DeInitialize();
+			return NULL;
 		}
 
 		const unsigned int size = desc.Height * desc.Width;
 		if (size > remain)
 		{
-			m_deviceContext->Unmap(m_texture[i], 0);
+			m_DxRes->Context->Unmap(m_texture[i], 0);
 			DEBUG_ERROR("Too much data to fit in buffer");
-			free(init_ptr);
-			return GRAB_STATUS_ERROR;
+
+			return NULL;
 		}
 
 		const uint8_t * src = (uint8_t *)mapping.pData;
 		for (unsigned int y = 0; y < desc.Height; ++y)
 		{
-			memcpySSE(data, src, desc.Width);
+			memcpy(data, src, desc.Width);
 			data += desc.Width;
 			src += mapping.RowPitch;
 		}
-		m_deviceContext->Unmap(m_texture[i], 0);
-		remain -= size;*/
+		m_DxRes->Context->Unmap(m_texture[i], 0);
+		remain -= size;
 	}
-
-
-
-	size_t buf_size = init_size - remain;
-
-	return data;
+	size_t buf_size = in_len - remain;
+	assert(buf_size == (VIDEO_WIDTH * VIDEO_HEIGHT * 3 >> 1));
+	out_len = buf_size;
+	return in_data;
 }
 
-void texture_convert_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
+IMFSample* DUPLICATIONMANAGER::text_to_yuv_to_sample(ID3D11Texture2D *texture[3], IMFMediaBuffer** pp_buf)
 {
-	HRESULT status;
-	IMFMediaBufferPtr buffer;
-	status = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), texture, 0, FALSE, &buffer);
-	if (FAILED(status))
+	IMFMediaBuffer *buf = NULL;
+	size_t len = (VIDEO_WIDTH * VIDEO_HEIGHT * 3) >> 1;
+	HRESULT hr = MFCreateMemoryBuffer(len, &buf);
+	if (FAILED(hr))
 	{
-		return;
+		DEBUG_WINERROR("MFCreateMemoryBuffer fail", hr);
+		return NULL;
 	}
 
-	IMF2DBufferPtr imfBuffer(buffer);
-	DWORD length;
-	imfBuffer->GetContiguousLength(&length);
-	buffer->SetCurrentLength(length);
+	BYTE* t = NULL;
+	size_t out_len = 0;
+	hr = buf->Lock(&t, NULL, NULL);	
+	uint8_t *p = texture_to_yuv(texture, t, len, out_len);
+	buf->Unlock();
+
+	buf->SetCurrentLength(len);
 
 	IMFSample *sample;
 	MFCreateSample(&sample);
-	sample->AddBuffer(buffer);
-	*pp_sample = sample;
+	sample->AddBuffer(buf);
+
+	hr = sample->SetSampleTime(rtStart);
+	rtStart += VIDEO_FRAME_DURATION;
+	hr = sample->SetSampleDuration(VIDEO_FRAME_DURATION);
+
+	*pp_buf = buf;
+	return sample;
 }
 
 //
@@ -370,6 +537,7 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
         return ProcessFailure(nullptr, L"Failed to QI for ID3D11Texture2D from acquired IDXGIResource in DUPLICATIONMANAGER", hr);
     }
 
+#if 0
 	{
 		m_DxRes->Context->CopyResource(m_DestImage, m_AcquiredDesktopImage);
 		D3D11_MAPPED_SUBRESOURCE resource;
@@ -389,6 +557,32 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
 		DoneWithFrame();
 		return DUPL_RETURN_SUCCESS;
 	}
+#else
+	{
+		TextureList planes;
+		if (!m_textureConverter->Convert(m_AcquiredDesktopImage, planes))
+			return DUPL_RETURN_ERROR_EXPECTED;
+
+		for (int i = 0; i < 3; ++i)
+		{
+			ID3D11Texture2DPtr t = planes.at(i);
+			m_DxRes->Context->CopyResource(m_texture[i], t);
+		}
+		
+		IMFMediaBuffer *buf = NULL;
+		IMFSample *sample = text_to_yuv_to_sample(m_texture, &buf);
+		
+		//hr = pSinkWriter->WriteSample(stream, sample);
+		encoder->EncodeToH264BySample(sample);
+
+		SafeRelease(&sample);
+		SafeRelease(&buf);
+
+		DoneWithFrame();
+		return DUPL_RETURN_SUCCESS;
+}
+#endif
+
 	
 
 	CopyImage(ImageData);
@@ -398,7 +592,11 @@ DUPL_RETURN DUPLICATIONMANAGER::GetFrame(_Inout_ BYTE* ImageData)
 
 void DUPLICATIONMANAGER::Finalize()
 {
-	pSinkWriter->Finalize();
+	if (pSinkWriter) 
+	{
+		pSinkWriter->Finalize();
+	}
+	
 }
 
 void  DUPLICATIONMANAGER::CopyImage(BYTE* ImageData)

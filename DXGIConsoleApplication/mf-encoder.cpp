@@ -108,9 +108,9 @@ HRESULT CMediaFoundationEncoder::Initialize()
 
 	CHECK_HR(hr = SetInputAndOutputType());
 	CHECK_HR(hr = CreateMediaSample(VIDEO_BUFFER_SIZE, &pSampleIn));
-	CHECK_HR(hr = pSampleIn->SetSampleDuration(400000));
+	CHECK_HR(hr = pSampleIn->SetSampleDuration(VIDEO_FRAME_DURATION));
 
-	fopen_s(&pf, "test.wmv", "wb");
+	fopen_s(&pf, "test-desktop.h264", "wb");
 	return hr;
 bail:
 	return hr;
@@ -388,6 +388,40 @@ void CMediaFoundationEncoder::EncodeToH264(ID3D11Texture2D *texture)
 		SafeRelease(&pMediaBuffer);
 	}
 
+bail:
+	return;
+}
+
+void CMediaFoundationEncoder::EncodeToH264BySample(IMFSample* pSample)
+{
+	HRESULT hr = S_OK;
+	CHECK_HR(hr = this->ProcessInput(pSample));
+
+	IMFSample *pSampleOut = NULL;
+	CHECK_HR(hr = this->ProcessOutput(&pSampleOut));
+	if (pSampleOut == NULL)
+	{
+		return;
+	}
+
+	IMFMediaBuffer *pMediaBuffer = NULL;
+	SafeRelease(&pMediaBuffer);
+	CHECK_HR(hr = pSampleOut->GetBufferByIndex(0, &pMediaBuffer));
+	CHECK_HR(hr = pMediaBuffer->GetCurrentLength(&nLength));
+	if (nLength > 0)
+	{
+		BYTE* pBuffer = NULL;
+		CHECK_HR(hr = pMediaBuffer->Lock(&pBuffer, NULL, NULL));
+
+		//write to file
+		fwrite(pBuffer, 1, nLength, pf);
+		fflush(pf);
+	}
+	SafeRelease(&pSampleOut);
+	SafeRelease(&pMediaBuffer);
+
+
+	return;
 bail:
 	return;
 }

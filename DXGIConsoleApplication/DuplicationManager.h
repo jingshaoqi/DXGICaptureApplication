@@ -14,6 +14,7 @@
 #include <new>
 #include <stdio.h>
 #include <stdint.h>
+#include "TextureConverter.h"
 
 extern HRESULT SystemTransitionsExpectedErrors[];
 extern HRESULT CreateDuplicationExpectedErrors[];
@@ -60,7 +61,8 @@ class DUPLICATIONMANAGER
 		void Finalize();
         DUPL_RETURN InitDupl(_In_ FILE *log_file, UINT Output);
 
-		HRESULT  CreateTextureForDevice();
+		HRESULT  InitRawCapture();
+		HRESULT InitYUV420Capture();
 
 		int GetImageHeight();
 		int GetImageWidth();
@@ -79,8 +81,7 @@ class DUPLICATIONMANAGER
 		FILE *m_log_file;
 		int m_ImagePitch;
 
-		LONGLONG rtStart;
-		UINT64 rtDuration;
+		LONGLONG rtStart = 0;
 
 	//methods
 		_Post_satisfies_(return != DUPL_RETURN_SUCCESS)
@@ -93,10 +94,13 @@ class DUPLICATIONMANAGER
 		IMFSinkWriter *pSinkWriter = NULL;
 		DWORD stream;
 
-		uint8_t* texture_to_yuv(ID3D11Texture2D *texture, size_t& len);
+		uint8_t* texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t *in_data, size_t in_len, size_t& out_len);
 
+		IMFSample* text_to_yuv_to_sample(ID3D11Texture2D *texture[3], IMFMediaBuffer** pp_buf);
 		
 		CMediaFoundationEncoder* encoder = NULL;
+		TextureConverter *m_textureConverter;
+		ID3D11Texture2D              *m_texture[3];
 
 };
 
