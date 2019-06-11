@@ -461,7 +461,7 @@ uint8_t* DuplicationManager::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t
 		const uint8_t * src = (uint8_t *)mapping.pData;
 		for (unsigned int y = 0; y < desc.Height; ++y)
 		{
-			memcpy(data, src, desc.Width);
+			memcpySSE(data, src, desc.Width);
 			data += desc.Width;
 			src += mapping.RowPitch;
 		}

@@ -82,8 +82,8 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="common\memcpySSE.asm">
+    <MASM Include="common\memcpySSE.asm">
       <Filter>common</Filter>
-    </None>
+    </MASM>
   </ItemGroup>
 </Project>
