@@ -63,7 +63,7 @@ void save_as_bitmap(unsigned char *bitmap_data, int rowPitch, int height, char *
 
 int main(int argc, char* argv[])
 {
-	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 	if (!SUCCEEDED(hr))
 	{
 		return 0;

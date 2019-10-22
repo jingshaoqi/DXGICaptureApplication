@@ -224,6 +224,8 @@ HRESULT DuplicationManager::InitDupl(_In_ FILE *log_file, UINT Output)
 	// Feature levels supported
 	D3D_FEATURE_LEVEL FeatureLevels[] =
 	{
+// 		D3D_FEATURE_LEVEL_12_1,
+// 		D3D_FEATURE_LEVEL_12_0,
 		D3D_FEATURE_LEVEL_11_1,
 		D3D_FEATURE_LEVEL_11_0,
 		D3D_FEATURE_LEVEL_10_1,
@@ -241,6 +243,8 @@ HRESULT DuplicationManager::InitDupl(_In_ FILE *log_file, UINT Output)
 	{
 		return ProcessFailure(nullptr, L"Failed to create device in InitializeDx", hr);
 	}
+
+	printf("feature level:0x%x\n", FeatureLevel);
 
 	m_OutputNumber = Output;
 
@@ -427,7 +431,7 @@ void texture_to_sample(ID3D11Texture2D *texture, IMFSample **pp_sample)
 	*pp_sample = sample;
 }
 
-uint8_t* DuplicationManager::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t *in_data, size_t in_len, size_t& out_len)
+uint8_t* DuplicationManager::texture_to_yuv(ID3D11Texture2DPtr texture[3], uint8_t *in_data, size_t in_len, size_t& out_len)
 {
 	HRESULT result;
 	bool timeout;
@@ -474,7 +478,7 @@ uint8_t* DuplicationManager::texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t
 	return in_data;
 }
 
-IMFSample* DuplicationManager::text_to_yuv_to_sample(ID3D11Texture2D *texture[3], IMFMediaBuffer** pp_buf)
+IMFSample* DuplicationManager::text_to_yuv_to_sample(ID3D11Texture2DPtr texture[3], IMFMediaBuffer** pp_buf)
 {
 	IMFMediaBuffer *buf = NULL;
 	size_t len = (VIDEO_WIDTH * VIDEO_HEIGHT * 3) >> 1;

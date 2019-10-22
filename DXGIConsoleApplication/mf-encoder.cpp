@@ -42,6 +42,10 @@ HRESULT CMediaFoundationEncoder::Initialize()
 	IMFMediaType* pOutMediaType = NULL;
 	ICodecAPI* pCodecAPI = NULL;
 
+	MFT_REGISTER_TYPE_INFO toutinfo_in;
+	toutinfo_in.guidMajorType = MFMediaType_Video;
+	toutinfo_in.guidSubtype = VIDEO_INPUT_FORMAT;
+
 	// Look for a encoder.
 	MFT_REGISTER_TYPE_INFO toutinfo;
 	toutinfo.guidMajorType = MFMediaType_Video;
@@ -49,13 +53,13 @@ HRESULT CMediaFoundationEncoder::Initialize()
 
 	HRESULT hr = S_OK;
 
-	UINT32 unFlags = MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER;
-	//UINT32 unFlags = MFT_ENUM_FLAG_HARDWARE ;
+	//UINT32 unFlags = MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER;
+	UINT32 unFlags = MFT_ENUM_FLAG_HARDWARE ;
 
 	CHECK_HR(hr = MFTEnum(
 		MFT_CATEGORY_VIDEO_ENCODER,
 		unFlags,                  // Reserved
-		NULL,               // Input type to match. 
+		&toutinfo_in,               // Input type to match. 
 		&toutinfo,          // Output type to match.
 		NULL,               // Attributes to match. (None.)
 		&pCLSIDs,           // Receives a pointer to an array of CLSIDs.
@@ -75,8 +79,7 @@ HRESULT CMediaFoundationEncoder::Initialize()
 	//Create the MFT decoder
 	CHECK_HR(hr = CoCreateInstance(pCLSIDs[0], NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m_pMFT)));
 	CHECK_HR(hr = m_pMFT->QueryInterface(IID_PPV_ARGS(&pCodecAPI)));
-
-
+	
 	// FIXME: encoder only
 	var.vt = VT_UI4;
 	var.ulVal = 0;

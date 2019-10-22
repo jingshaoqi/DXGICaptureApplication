@@ -87,13 +87,13 @@ private:
 	IMFSinkWriter *pSinkWriter = NULL;
 	DWORD stream;
 
-	uint8_t* texture_to_yuv(ID3D11Texture2D *texture[3], uint8_t *in_data, size_t in_len, size_t& out_len);
+	uint8_t* texture_to_yuv(ID3D11Texture2DPtr texture[3], uint8_t *in_data, size_t in_len, size_t& out_len);
 
-	IMFSample* text_to_yuv_to_sample(ID3D11Texture2D *texture[3], IMFMediaBuffer** pp_buf);
+	IMFSample* text_to_yuv_to_sample(ID3D11Texture2DPtr texture[3], IMFMediaBuffer** pp_buf);
 
 	CMediaFoundationEncoder* encoder = NULL;
 	TextureConverter *m_textureConverter;
-	ID3D11Texture2D              *m_texture[3];
+	ID3D11Texture2DPtr              m_texture[3];
 
 };
 

@@ -1,0 +1,1 @@
+通过D3D11捕捉桌面，经过MediaFoundation（windows 10）编码成264然后存为test
